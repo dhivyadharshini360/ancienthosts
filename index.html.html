@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Ancient Ports — Detailed Map with Sections</title>
+
+  <!-- MapLibre GL JS (open-source Mapbox alternative) -->
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+
+  <style>
+    :root{
+      --left-w: 360px;
+      --accent: #FF8C00;
+      --card-bg: #ffffff;
+      --ui-bg: #071226;
+      --text-dark: #0b2b36;
+    }
+    html,body,#map { height:100%; margin:0; padding:0; font-family: Inter, system-ui, Arial; background:#071226; color:var(--text-dark) }
+
+    /* Layout */
+    .app { height:100vh; display:flex; }
+    aside.left {
+      width:var(--left-w);
+      min-width:260px;
+      background: linear-gradient(180deg,#071226,#081533 120%);
+      color:#cfe7ff;
+      padding:16px;
+      box-sizing:border-box;
+      overflow:auto;
+      z-index:25;
+    }
+    #map { flex:1; position:relative; z-index:10; }
+
+    .brand { display:flex; gap:10px; align-items:center; font-weight:700; margin-bottom:8px; }
+    .brand .dot { width:12px;height:12px;border-radius:50%;background:var(--accent); box-shadow:0 0 8px rgba(255,140,0,0.18) }
+
+    .search { display:flex; gap:8px; margin-top:10px; }
+    .search input { flex:1; padding:8px 10px; border-radius:8px; border:none; outline:none; font-size:14px; }
+
+    .port-list { margin-top:12px; display:flex; flex-direction:column; gap:8px; }
+    .port-item { display:flex; gap:10px; align-items:center; padding:10px; border-radius:8px; cursor:pointer; background:linear-gradient(90deg, rgba(255,255,255,0.02), transparent); transition:transform .15s ease }
+    .port-item:hover { transform:translateY(-4px); }
+    .port-thumb { width:64px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0; }
+
+    /* Detail card */
+    .detail-card {
+      position:absolute;
+      right:18px;
+      top:18px;
+      width:420px;
+      background:var(--card-bg);
+      border-radius:12px;
+      box-shadow:0 30px 60px rgba(2,6,23,0.6);
+      overflow:hidden;
+      z-index:55;
+      display:none;
+    }
+    .detail-head { display:flex; align-items:center; gap:12px; padding:12px 14px; background:linear-gradient(90deg,#f7f8fa, #eef3f7); }
+    .detail-head h2 { margin:0; font-size:18px; color:var(--text-dark); }
+    .detail-coord { margin-left:auto; font-size:12px; color:#40627a; }
+
+    /* Tabs */
+    .tabs { display:flex; gap:6px; padding:10px 12px; background:#ffffff; border-bottom:1px solid #eef2f6; flex-wrap:wrap; }
+    .tab-btn { padding:6px 8px; border-radius:8px; border:none; cursor:pointer; font-size:13px; background:transparent; color:#3b5870; }
+    .tab-btn.active { background:var(--accent); color:white; font-weight:700; box-shadow:0 10px 26px rgba(255,140,0,0.12); }
+
+    .tab-content { padding:12px 14px; max-height:360px; overflow:auto; background:linear-gradient(180deg,#fff,#fbfdff); }
+    .section-text { font-size:13px; line-height:1.45; color:var(--text-dark); margin-bottom:10px; white-space:pre-wrap; }
+    .gallery { display:flex; gap:8px; flex-wrap:wrap; }
+    .gallery img { width:86px; height:64px; object-fit:cover; border-radius:6px; cursor:pointer; border:1px solid #e6eef6; box-shadow:0 6px 18px rgba(10,20,30,0.06); }
+
+    .detail-actions { display:flex; gap:8px; padding:10px 14px; border-top:1px solid #edf3fb; background:#fff; }
+    .btn { padding:8px 10px; border-radius:8px; border:none; cursor:pointer; font-weight:700; }
+    .btn.primary { background:var(--accent); color:white; }
+    .btn.ghost { background:#f2f6fb; color:#134361; }
+
+    /* Marker */
+    .marker { width:20px;height:20px;border-radius:50%;background:var(--accent);box-shadow:0 0 18px rgba(255,140,0,0.25); display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; }
+    .marker::after { content:''; position:absolute; left:-11px; top:-11px; width:42px;height:42px;border-radius:50%; border:2px solid rgba(255,140,0,0.16); animation:pulse 2.6s infinite; }
+    @keyframes pulse { 0%{ transform:scale(.75); opacity:0.9 } 50%{ transform:scale(1.25); opacity:.25 } 100%{ transform:scale(1.6); opacity:0 } }
+
+    /* fullscreen modal for image */
+    .modal-overlay { display:none; position:fixed; z-index:9999; inset:0; background:rgba(2,6,23,0.92); align-items:center; justify-content:center; }
+    .modal-overlay img { max-width:92%; max-height:92%; border-radius:8px; box-shadow:0 30px 80px rgba(0,0,0,0.6); }
+    .modal-close { position:absolute; right:26px; top:20px; font-size:36px; color:#fff; cursor:pointer; }
+
+    /* small screens adjustments */
+    @media (max-width:900px){
+      aside.left { display:none; }
+      .detail-card { width:94%; right:3%; left:3%; top:auto; bottom:18px; max-height:70vh; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="left">
+    <div class="brand"><span class="dot"></span> Ancient Ports Explorer</div>
+    <div style="font-size:13px; color:#9fb4d6; margin-top:6px">Click a pin or pick from the list to view sections with images.</div>
+
+    <div class="search" style="margin-top:12px;">
+      <input id="searchBox" placeholder="Search ports..." />
+      <button id="resetBtn" title="Reset" style="background:#0f2a4d;color:#d6eaff;border:none;border-radius:8px;padding:8px 10px;cursor:pointer">Reset</button>
+    </div>
+
+    <div id="portList" class="port-list"></div>
+  </aside>
+
+  <div id="map"></div>
+
+  <!-- detail card -->
+  <div id="detailCard" class="detail-card" role="region" aria-label="Port details">
+    <div class="detail-head">
+      <h2 id="detailTitle">Title</h2>
+      <div id="detailCoord" class="detail-coord">--</div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab-btn active" data-tab="intro">Introduction</button>
+      <button class="tab-btn" data-tab="exports">Export & Import</button>
+      <button class="tab-btn" data-tab="routes">Trade Routes</button>
+      <button class="tab-btn" data-tab="arch">Architecture</button>
+      <button class="tab-btn" data-tab="culture">Cultural Exchanges</button>
+    </div>
+
+    <div class="tab-content">
+      <!-- Introduction -->
+      <div class="tab-panel" id="intro">
+        <div class="section-text" id="introText"></div>
+        <div class="gallery" id="introGallery"></div>
+      </div>
+
+      <!-- Exports -->
+      <div class="tab-panel" id="exports" style="display:none">
+        <div class="section-text" id="exportText"></div>
+        <div class="gallery" id="exportGallery"></div>
+      </div>
+
+      <!-- Trade Routes -->
+      <div class="tab-panel" id="routes" style="display:none">
+        <div class="section-text" id="routesText"></div>
+        <div class="gallery" id="routesGallery"></div>
+      </div>
+
+      <!-- Architecture -->
+      <div class="tab-panel" id="arch" style="display:none">
+        <div class="section-text" id="archText"></div>
+        <div class="gallery" id="archGallery"></div>
+      </div>
+
+      <!-- Culture -->
+      <div class="tab-panel" id="culture" style="display:none">
+        <div class="section-text" id="cultureText"></div>
+        <div class="gallery" id="cultureGallery"></div>
+      </div>
+    </div>
+
+    <div class="detail-actions">
+      <button class="btn primary" id="focusBtn">Focus on Map</button>
+      <button class="btn ghost" id="closeBtn">Close</button>
+    </div>
+  </div>
+
+  <!-- image modal -->
+  <div id="modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-close" onclick="closeModal()">×</div>
+    <img id="modalImg" src="" alt=""/>
+  </div>
+</div>
+
+<script>
+  // ---------------- Local image / video paths (exact paths you uploaded) ----------------
+  const IMAGES = {
+    tamralipti1: '/mnt/data/5eb7d759-0047-4646-b18b-002530fa0a12.jpg',
+    tamralipti2: '/mnt/data/872565de-ca02-410e-ab14-d018fe08cf37.jpg',
+    banner:      '/mnt/data/b92eac1e-a114-43ce-a634-14deef064867.jpg',
+    gate:        '/mnt/data/49fc1c3b-6535-4a82-b9a6-2687edaa34c4.jpg',
+    excavation:  '/mnt/data/37f23f9f-55e0-4ca2-b851-4e3b1903f1d9.jpg',
+    // <-- updated to the uploaded video path you provided
+    heroVideo:   '/mnt/data/e3b9a8a7-2b63-41d4-864d-398625824906.mp4'
+  };
+
+  // ----------------- Port content with sections & images --------------
+  // Texts inserted exactly as provided.
+  const portData = [
+    {
+      id: 'sopara',
+      title: 'SOPARA (Shurparaka)',
+      coords: [72.7759, 19.4250],
+      sections: {
+        intro: {
+          text: `Sopara, located near modern Nala Sopara (Maharashtra), was one of the earliest Indo-Roman and Indo-West Asian trade ports. It is mentioned in Buddhist texts, the Periplus, and ancient Indian inscriptions. Its significance peaked between 3rd century BCE and 3rd century CE.`,
+          images: [IMAGES.banner, IMAGES.excavation]
+        },
+        exports: {
+          text: `Exports: pepper, rice, textiles, ivory, semi-precious stones, beads, and medicinal plants.
+Imports: Roman gold coins, wine, glassware, fine pottery, metals (copper/tin), and luxury goods from Arabia and Egypt.`,
+          images: [IMAGES.banner]
+        },
+        routes: {
+          text: `Sopara was connected to the Arabian Sea routes linking Egypt, Oman, and the Persian Gulf. Inland, it connected to the Deccan via routes to Paithan and Nashik, enabling the movement of goods to interior markets.`,
+          images: [IMAGES.banner]
+        },
+        architecture: {
+          text: `Archaeology shows Buddhist stupas, monastic complexes, brick structures, and punch-marked coins. The stupa construction suggests strong early Buddhist patronage and urban craft activity.`,
+          images: [IMAGES.excavation]
+        },
+        culture: {
+          text: `Roman coins, foreign pottery, and bead styles confirm contact with Mediterranean traders. Buddhism spread through merchant guilds, and Sopara absorbed artistic styles from West Asian trade spheres.`,
+          images: [IMAGES.tamralipti1, IMAGES.banner]
+        }
+      }
+    },
+
+    {
+      id: 'barygaza',
+      title: 'BARYGAZA (Bharuch)',
+      coords: [72.9959, 21.7051],
+      sections: {
+        intro: {
+          text: `Barygaza (modern Bharuch, Gujarat) was one of India’s most important ancient ports. The Periplus praises it as a wealthy, highly organized emporium active from Mauryan to Satavahana times.`,
+          images: [IMAGES.gate, IMAGES.banner]
+        },
+        exports: {
+          text: `Exports: cotton textiles, sesame oil, nard, spikenard, wheat, beads, onyx, pearls, and frankincense.
+Imports: coral, wine, silver, Roman coins, high-quality glass, copper, tin, and luxury consumer items.`,
+          images: [IMAGES.gate]
+        },
+        routes: {
+          text: `It was the main entrance point for Roman ships crossing the Arabian Sea using monsoon winds. Goods moved inland via the Narmada river routes to Ujjain, Paithan, and the Deccan, forming a strong hinterland trade network.`,
+          images: [IMAGES.banner]
+        },
+        architecture: {
+          text: `Findings include dock installations, warehouses, ring wells, terracotta figurines, and well-built residential blocks. Craft centers for bead-making and textile processing flourished.`,
+          images: [IMAGES.excavation, IMAGES.gate]
+        },
+        culture: {
+          text: `Barygaza shows strong Greco-Roman influence—amphorae fragments, Roman coins, and Mediterranean ceramic styles. Merchant communities promoted cross-cultural commercial practices, weights, and artistic motifs.`,
+          images: [IMAGES.gate, IMAGES.banner]
+        }
+      }
+    },
+
+    {
+      id: 'tamralipti',
+      title: 'TAMRALIPTI',
+      coords: [88.3333, 22.33],
+      sections: {
+        intro: {
+          text: `Tamralipti, located in modern Tamluk (West Bengal), was the major eastern port of ancient India. It linked the Ganga delta to Southeast Asia, Sri Lanka, and China, flourishing from Mauryan to early medieval times.`,
+          images: [IMAGES.tamralipti1, IMAGES.tamralipti2]
+        },
+        exports: {
+          text: `Exports: fine textiles (muslin), rice, metalware, spices, ivory objects, beads, and artworks.
+Imports: silk, porcelain, bronze mirrors, Buddhist manuscripts, and maritime goods from Southeast Asia.`,
+          images: [IMAGES.tamralipti2, IMAGES.banner]
+        },
+        routes: {
+          text: `It served as the maritime gateway for traders and Buddhist pilgrims traveling to Sri Lanka and Southeast Asia. Inland, it linked to Pataliputra through the Ganga river system, enabling high-volume transport.`,
+          images: [IMAGES.banner]
+        },
+        architecture: {
+          text: `Excavations reveal stupas, monasteries, brick houses, pottery kilns, and urban drainage. The presence of Buddhist structures suggests strong monastic patronage tied to maritime merchants.`,
+          images: [IMAGES.excavation, IMAGES.tamralipti1]
+        },
+        culture: {
+          text: `Tamralipti was a key hub for Buddhist transmission to Sri Lanka and Southeast Asia. Chinese pilgrims like Xuanzang documented its vibrant multicultural trade environment.`,
+          images: [IMAGES.tamralipti1, IMAGES.banner]
+        }
+      }
+    },
+
+    {
+      id: 'korkai',
+      title: 'KORKAI',
+      coords: [78.0720, 8.6430], // corrected: [lng, lat]
+      sections: {
+        intro: {
+          text: `Korkai, located in Tamil Nadu’s Tirunelveli district, was the early Pandyan capital and a major pearl-fishing and maritime trade port. It flourished between 3rd century BCE and early centuries CE.`,
+          images: [IMAGES.tamralipti2, IMAGES.excavation]
+        },
+        exports: {
+          text: `Exports: pearls (its primary commodity), fish products, spices, textiles, and beads.
+Imports: Roman coins, Mediterranean wine, glass, metalware, horses, and luxury objects via Arabian intermediaries.`,
+          images: [IMAGES.tamralipti2]
+        },
+        routes: {
+          text: `Korkai was connected to Red Sea, Arabian, and Roman routes, especially for pearl trade. Inland routes linked it to Madurai, enabling the distribution of maritime wealth into Pandyan territory.`,
+          images: [IMAGES.banner]
+        },
+        architecture: {
+          text: `Archaeology shows brick structures, industrial areas for bead-making, storage pits, and habitation layers. The presence of Roman amphorae fragments suggests organized port activity.`,
+          images: [IMAGES.excavation]
+        },
+        culture: {
+          text: `Romans, Arabs, and Southeast Asians interacted with local traders. Pearl trade created cross-cultural contact, influencing art motifs, bead styles, and maritime technology.`,
+          images: [IMAGES.tamralipti2, IMAGES.gate]
+        }
+      }
+    },
+
+    {
+      id: 'kaveripattnam',
+      title: 'KAVERI PATTANAM (Puhar)',
+      coords: [79.8570, 11.1526], // corrected: [lng, lat]
+      sections: {
+        intro: {
+          text: `Kaveripattanam (Puhar), the Chera-Chola port at the mouth of the Kaveri river, was a cosmopolitan maritime city mentioned in Sangam literature. It peaked between 1st century BCE–3rd century CE.`,
+          images: [IMAGES.excavation, IMAGES.banner]
+        },
+        exports: {
+          text: `Exports: pepper, textiles, gemstones, ivory, indigo, and spices.
+Imports: gold, horses, wine, glassware, metals, and Roman amphorae goods.`,
+          images: [IMAGES.banner]
+        },
+        routes: {
+          text: `The port linked India with Rome, Arabia, Southeast Asia, and Sri Lanka. Inland routes connected it to Uraiyur and the Kaveri plains, allowing resource inflow and craft specialization.`,
+          images: [IMAGES.banner, IMAGES.tamralipti1]
+        },
+        architecture: {
+          text: `Excavations reveal warehouses, wharves, ring wells, brick buildings, terracotta pipes, and craft workshops. Literary texts describe merchant quarters, shipyards, and marketplaces.`,
+          images: [IMAGES.excavation]
+        },
+        culture: {
+          text: `Roman amphorae, foreign coins, and Southeast Asian artifacts show extensive cross-cultural trade. Maritime guilds encouraged shared artistic styles, religious ideas, and shipbuilding knowledge.`,
+          images: [IMAGES.banner, IMAGES.tamralipti2]
+        }
+      }
+    }
+  ];
+
+  // --------------- initialize map (MapLibre + OSM tiles) ----------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        'raster-tiles': {
+          type: 'raster',
+          tiles: [
+            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'
+          ],
+          tileSize: 256,
+          attribution: '© OpenStreetMap contributors'
+        }
+      },
+      layers: [{ id: 'osm-tiles', type: 'raster', source: 'raster-tiles' }]
+    },
+    center: [80.5, 20.0],
+    zoom: 5,
+    pitch: 45,
+    bearing: -10
+  });
+
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
+
+  map.on('load', () => {
+    addMarkers();
+    renderPortList();
+    // auto-open first port details shortly after load
+    setTimeout(() => openDetail(portData[0]), 700);
+  });
+
+  // ---------------- add markers ----------------
+  function addMarkers(){
+    portData.forEach(p => {
+      const el = document.createElement('div');
+      el.className = 'marker';
+      el.title = p.title;
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openDetail(p);
+        map.flyTo({ center: p.coords, zoom: 7.2, pitch: 60, bearing: 0, speed: 0.9 });
+      });
+      new maplibregl.Marker(el).setLngLat(p.coords).addTo(map);
+    });
+
+    const bounds = new maplibregl.LngLatBounds();
+    portData.forEach(p => bounds.extend(p.coords));
+    map.fitBounds(bounds, { padding: 80, maxZoom: 7 });
+  }
+
+  // ---------------- left list ----------------
+  const portListEl = document.getElementById('portList');
+  function renderPortList(filter = '') {
+    portListEl.innerHTML = '';
+    const filtered = portData.filter(p => p.title.toLowerCase().includes(filter.toLowerCase()));
+    filtered.forEach(p => {
+      const item = document.createElement('div');
+      item.className = 'port-item';
+      item.innerHTML = `
+        <img class="port-thumb" src="${p.sections.intro.images[0]}" alt="${escapeHtml(p.title)}">
+        <div style="flex:1">
+          <div style="font-weight:700;color:#dff3ff">${escapeHtml(p.title)}</div>
+          <div style="font-size:12px;opacity:0.85;margin-top:6px;color:#a9c7df">${escapeHtml(p.sections.intro.text.slice(0,120))}...</div>
+        </div>
+      `;
+      item.addEventListener('click', () => {
+        openDetail(p);
+        map.flyTo({ center: p.coords, zoom: 7.2, pitch: 60, bearing: 0, speed: 0.9 });
+      });
+      portListEl.appendChild(item);
+    });
+
+    if(filtered.length === 0){
+      portListEl.innerHTML = '<div style="opacity:0.6;padding:10px;">No matches</div>';
+    }
+  }
+  document.getElementById('searchBox').addEventListener('input', (e) => renderPortList(e.target.value));
+  document.getElementById('resetBtn').addEventListener('click', () => { document.getElementById('searchBox').value=''; renderPortList(''); map.flyTo({ center:[80.5,20], zoom:5, pitch:45, bearing:-10 }); });
+
+  // ---------------- detail UI ----------------
+  const detailCard = document.getElementById('detailCard');
+  const detailTitle = document.getElementById('detailTitle');
+  const detailCoord = document.getElementById('detailCoord');
+  const tabs = document.getElementById('tabs');
+  const panels = { intro: document.getElementById('intro'), exports: document.getElementById('exports'), routes: document.getElementById('routes'), arch: document.getElementById('arch'), culture: document.getElementById('culture') };
+
+  tabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab-btn');
+    if(!btn) return;
+    [...tabs.querySelectorAll('.tab-btn')].forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    Object.keys(panels).forEach(k => panels[k].style.display = (k === tab ? 'block' : 'none'));
+  });
+
+  document.getElementById('closeBtn').addEventListener('click', hideDetail);
+  document.getElementById('focusBtn').addEventListener('click', () => {
+    const cur = detailCard.dataset.cur;
+    if(!cur) return;
+    const p = portData.find(x => x.id === cur);
+    if(p) map.easeTo({ center: p.coords, zoom: 8.4, pitch: 70, bearing: -10, duration: 1400 });
+  });
+
+  function openDetail(port) {
+    detailCard.style.display = 'block';
+    detailCard.dataset.cur = port.id;
+    detailTitle.textContent = port.title;
+    detailCoord.textContent = (port.coords[1].toFixed(4)) + ', ' + (port.coords[0].toFixed(4));
+
+    // fill each section
+    fillSection('intro', port.sections.intro);
+    fillSection('exports', port.sections.exports);
+    fillSection('routes', port.sections.routes);
+    fillSection('arch', port.sections.architecture || port.sections.arch);
+    fillSection('culture', port.sections.culture);
+
+    // activate first tab
+    [...tabs.querySelectorAll('.tab-btn')].forEach(b => b.classList.remove('active'));
+    tabs.querySelector('[data-tab="intro"]').classList.add('active');
+    Object.keys(panels).forEach(k => panels[k].style.display = (k === 'intro' ? 'block' : 'none'));
+  }
+
+  function hideDetail(){
+    detailCard.style.display = 'none';
+  }
+
+  // fills a named tab with a section object {text, images}
+  function fillSection(name, section){
+    if(!section) { panels[name].querySelector('.section-text').textContent = 'No information yet.'; panels[name].querySelector('.gallery').innerHTML=''; return; }
+    panels[name].querySelector('.section-text').textContent = section.text || '';
+    const g = panels[name].querySelector('.gallery');
+    g.innerHTML = '';
+    (section.images || []).forEach(src => {
+      const img = document.createElement('img'); img.src = src; img.alt = '';
+      img.addEventListener('click', (e) => { openModal(src); e.stopPropagation(); });
+      g.appendChild(img);
+    });
+  }
+
+  // -------------- image modal --------------
+  const modal = document.getElementById('modal');
+  const modalImg = document.getElementById('modalImg');
+  function openModal(src){
+    modalImg.src = src;
+    modal.style.display = 'flex';
+  }
+  function closeModal(){ modal.style.display = 'none'; modalImg.src=''; }
+  window.closeModal = closeModal; // for inline handler
+
+  // clicking outside modal image closes
+  modal.addEventListener('click', (e) => {
+    if(e.target === modal || e.target.classList.contains('modal-close')) closeModal();
+  });
+
+  // simple escape-html utility
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+</script>
+
+</body>
+</html>
+
+
